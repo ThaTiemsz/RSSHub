@@ -44,22 +44,21 @@ async function handler(): Promise<Data> {
         )
     ).flat();
 
-    const items = data.map(
-        (item): DataItem => ({
-            guid: item.id,
-            title: item.title,
-            link: item.href,
-            description: item.text_content?.main_content,
-            pubDate: parseDate(item.content_date),
-            author: item.authors?.map((author) => ({
-                name: author.display_title || author.title,
-                url: author.href,
-                avatar: author.profile_image?.thumb_1x1?.src,
-            })),
-            category: item.category_labels ? Object.values<{ title: string; url: string }>(item.category_labels).map((label) => label.title) : undefined,
-            image: item.featured_image?.base_src,
-        })
-    );
+    const items = data.map((item): DataItem & { summary?: string } => ({
+        guid: item.id,
+        title: item.title,
+        link: item.href,
+        summary: item.description,
+        description: item.text_content?.main_content,
+        pubDate: parseDate(item.content_date),
+        author: item.authors?.map((author) => ({
+            name: author.display_title || author.title,
+            url: author.href,
+            avatar: author.profile_image?.thumb_1x1?.src,
+        })),
+        category: item.category_labels ? Object.values<{ title: string; url: string }>(item.category_labels).map((label) => label.title) : undefined,
+        image: item.featured_image?.base_src,
+    }));
 
     return {
         title: 'StarWars.com News',
