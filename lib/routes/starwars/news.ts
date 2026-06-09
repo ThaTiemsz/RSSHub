@@ -1,4 +1,7 @@
+import { load } from 'cheerio';
+
 import type { Data, DataItem, Route } from '@/types';
+import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
@@ -24,6 +27,22 @@ export const route: Route = {
     maintainers: ['Tiemen'],
     handler,
 };
+
+async function getFavicon() {
+    return await cache.tryGet(
+        'starwars-news-favicon',
+        async () => {
+            const response = await ofetch('https://www.starwars.com');
+            const $ = load(response);
+            const faviconUrl = $('link[rel="shortcut icon"], link[rel="icon"]')?.attr('href');
+            if (faviconUrl) {
+                return faviconUrl.startsWith('http') ? faviconUrl : '';
+            }
+            return '';
+        },
+        60 * 60 * 24 * 30
+    ); // Cache for 30 days
+}
 
 async function handler(): Promise<Data> {
     const urls = [
@@ -66,5 +85,6 @@ async function handler(): Promise<Data> {
         description: 'Star Wars News, Articles & Quizzes',
         language: 'en',
         item: items,
+        icon: await getFavicon(),
     };
 }
