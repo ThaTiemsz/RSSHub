@@ -26,14 +26,27 @@ export const route: Route = {
 };
 
 async function handler(): Promise<Data> {
-    const data = await ofetch('https://www.starwars.com/_grill/more/news?r=1-4&l=24&o=0', {
-        headers: {
-            accept: 'application/json',
-        },
-    });
+    const urls = [
+        'https://www.starwars.com/_grill/more/news?r=1-4&l=24&o=0', // Featured News section
+        'https://www.starwars.com/_grill/more/news?r=1-5&l=24&o=0', // Latest News section
+        'https://www.starwars.com/_grill/more/news?r=1-6&l=24&o=0', // More News section
+    ];
+
+    const data = (
+        await Promise.all(
+            urls.map((url) =>
+                ofetch(url, {
+                    headers: {
+                        accept: 'application/json',
+                    },
+                })
+            )
+        )
+    ).flat();
 
     const items = data.map(
         (item): DataItem => ({
+            guid: item.id,
             title: item.title,
             link: item.href,
             description: item.text_content?.main_content,
