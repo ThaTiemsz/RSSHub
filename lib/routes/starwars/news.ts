@@ -67,8 +67,7 @@ async function handler(): Promise<Data> {
         guid: item.id,
         title: item.title,
         link: item.href,
-        summary: item.description,
-        description: item.text_content?.main_content,
+        description: item.description,
         pubDate: parseDate(item.content_date),
         author: item.authors?.map((author) => ({
             name: author.display_title || author.title,
@@ -85,6 +84,6 @@ async function handler(): Promise<Data> {
         description: 'Star Wars News, Articles & Quizzes',
         language: 'en',
         item: items,
-        icon: await getFavicon(),
+        image: await getFavicon(),
     };
 }
