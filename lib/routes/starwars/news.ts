@@ -28,6 +28,84 @@ export const route: Route = {
     handler,
 };
 
+type StarWarsAuthor = {
+    display_title?: string;
+    title?: string;
+    href?: string;
+    content_url?: string;
+    url?: string;
+    profile_image?: {
+        thumb_1x1?: {
+            src?: string;
+        };
+    };
+    image_assets?: {
+        thumb_images?: {
+            thumb_1x1?: string;
+            thumb_1x1_https?: string;
+        };
+    };
+};
+
+type StarWarsCategory = {
+    title?: string;
+};
+
+type StarWarsNewsItem = {
+    id: string;
+    title: string;
+    description?: string;
+    content_date?: string;
+    href?: string;
+    content_url?: string;
+    content_path?: string;
+    url?: string;
+    featured_image?: {
+        base_src?: string;
+    };
+    primary_image_url?: string;
+    secure_image_url?: string;
+    image_assets?: {
+        featured_image_16x9?: string;
+        featured_image_16x9_https?: string;
+        desktop_16x9?: string;
+        desktop_16x9_https?: string;
+    };
+    authors?: StarWarsAuthor[];
+    inc_categories?: {
+        primary?: StarWarsCategory[];
+        secondary?: StarWarsCategory[];
+    };
+    inc_tags?: StarWarsCategory[];
+    category_labels?: Record<string, StarWarsCategory>;
+};
+
+type StarWarsNewsResponse = {
+    home: {
+        classicModuleApi: {
+            data: StarWarsNewsItem[];
+        };
+    };
+};
+
+function getNewsLink(item: StarWarsNewsItem): string | undefined {
+    if (item.content_url || item.url || item.href) {
+        return item.content_url || item.url || item.href;
+    }
+    return item.content_path ? `https://www.starwars.com${item.content_path.startsWith('/') ? item.content_path : `/${item.content_path}`}` : undefined;
+}
+
+function getNewsCategories(item: StarWarsNewsItem): string[] | undefined {
+    const categories = [
+        ...(item.inc_categories?.primary?.map((category) => category.title) || []),
+        ...(item.inc_categories?.secondary?.map((category) => category.title) || []),
+        ...(item.inc_tags?.map((category) => category.title) || []),
+        ...(item.category_labels ? Object.values(item.category_labels).map((category) => category.title) : []),
+    ].filter((category): category is string => Boolean(category));
+
+    return categories.length ? [...new Set(categories)] : undefined;
+}
+
 async function getFavicon() {
     return await cache.tryGet(
         'starwars-news-favicon',
@@ -46,37 +124,46 @@ async function getFavicon() {
 
 async function handler(): Promise<Data> {
     const urls = [
-        'https://www.starwars.com/_grill/more/news?r=1-4&l=24&o=0', // Featured News section
-        'https://www.starwars.com/_grill/more/news?r=1-5&l=24&o=0', // Latest News section
-        'https://www.starwars.com/_grill/more/news?r=1-6&l=24&o=0', // More News section
+        'https://www.starwars.com/news?filter=&mod=4&limit=24&offset=0&_xhr=pageContent', // Featured News section
+        'https://www.starwars.com/news?filter=&mod=5&limit=24&offset=0&_xhr=pageContent', // Latest News section
+        'https://www.starwars.com/news?filter=&mod=6&limit=24&offset=0&_xhr=pageContent', // More News section
     ];
 
-    const data = (
-        await Promise.all(
-            urls.map((url) =>
-                ofetch(url, {
-                    headers: {
-                        accept: 'application/json',
-                    },
-                })
-            )
+    const responses = await Promise.all(
+        urls.map((url) =>
+            ofetch<StarWarsNewsResponse>(url, {
+                headers: {
+                    accept: 'application/json',
+                },
+            })
         )
-    ).flat();
+    );
+    const data = responses.flatMap((response) => response.home.classicModuleApi.data);
 
-    const items = data.map((item): DataItem & { summary?: string } => ({
-        guid: item.id,
-        title: item.title,
-        link: item.href,
-        description: item.description,
-        pubDate: parseDate(item.content_date),
-        author: item.authors?.map((author) => ({
-            name: author.display_title || author.title,
-            url: author.href,
-            avatar: author.profile_image?.thumb_1x1?.src,
-        })),
-        category: item.category_labels ? Object.values<{ title: string; url: string }>(item.category_labels).map((label) => label.title) : undefined,
-        image: item.featured_image?.base_src,
-    }));
+    const items = new Map(data.map((item) => [item.id, item]))
+        .values()
+        .toArray()
+        .map((item): DataItem => ({
+            guid: item.id,
+            title: item.title,
+            link: getNewsLink(item),
+            description: item.description,
+            pubDate: item.content_date ? parseDate(item.content_date) : undefined,
+            author: item.authors?.map((author) => ({
+                name: author.display_title || author.title || 'StarWars.com',
+                url: author.content_url || author.url || author.href,
+                avatar: author.image_assets?.thumb_images?.thumb_1x1_https || author.image_assets?.thumb_images?.thumb_1x1 || author.profile_image?.thumb_1x1?.src,
+            })),
+            category: getNewsCategories(item),
+            image:
+                item.featured_image?.base_src ||
+                item.primary_image_url ||
+                item.secure_image_url ||
+                item.image_assets?.featured_image_16x9_https ||
+                item.image_assets?.featured_image_16x9 ||
+                item.image_assets?.desktop_16x9_https ||
+                item.image_assets?.desktop_16x9,
+        }));
 
     return {
         title: 'StarWars.com News',
