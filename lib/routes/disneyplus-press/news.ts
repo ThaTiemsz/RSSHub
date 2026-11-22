@@ -1,6 +1,6 @@
 import type { Data, DataItem, Route } from '@/types';
 import ofetch from '@/utils/ofetch';
-import { parseDate } from '@/utils/parse-date';
+import { parseDate } from '@/utils/time';
 
 export const route: Route = {
     path: '/news',
@@ -43,22 +43,20 @@ async function handler(): Promise<Data> {
 
     const stacks = data?.stack?.filter((stack) => stack.type === 'articlepage')?.flatMap((stack) => stack.data);
 
-    const items = stacks?.map(
-        (item): DataItem => ({
-            guid: item.id,
-            title: item.title,
-            link: item.href,
-            description: item.description,
-            pubDate: parseDate(item.content_date),
-            author: item.authors?.map((author) => ({
-                name: author.display_title || author.title,
-                url: author.href,
-                avatar: author.profile_image?.thumb_1x1?.src,
-            })),
-            category: item.category_labels ? Object.values<{ title: string; url: string }>(item.category_labels).map((label) => label.title) : undefined,
-            image: item.featured_image?.base_src,
-        })
-    );
+    const items = stacks?.map((item): DataItem => ({
+        guid: item.id,
+        title: item.title,
+        link: item.href,
+        description: item.description,
+        pubDate: parseDate(item.content_date),
+        author: item.authors?.map((author) => ({
+            name: author.display_title || author.title,
+            url: author.href,
+            avatar: author.profile_image?.thumb_1x1?.src,
+        })),
+        category: item.category_labels ? Object.values<{ title: string; url: string }>(item.category_labels).map((label) => label.title) : undefined,
+        image: item.featured_image?.base_src,
+    }));
 
     return {
         title: 'Disney+ Press News',

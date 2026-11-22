@@ -1,6 +1,6 @@
 import type { Data, DataItem, Route } from '@/types';
 import ofetch from '@/utils/ofetch';
-import { parseDate } from '@/utils/parse-date';
+import { parseDate } from '@/utils/time';
 
 export const route: Route = {
     path: '/news',
@@ -47,16 +47,18 @@ type BreakingPointNewsItem = {
 const FEED_URL = 'https://breakingpoint.gg/api/news/get-news-by-month';
 
 async function handler(): Promise<Data> {
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
+    const now = Temporal.Now.plainDateISO();
+    const currentMonth = now.month;
+    const currentYear = now.year;
     const previousMonth = currentMonth === 1 ? 12 : currentMonth - 1;
     const previousYear = currentMonth === 1 ? currentYear - 1 : currentYear;
 
     const [currentMonthItems, previousMonthItems] = await Promise.all([getMonthItems(currentMonth, currentYear), getMonthItems(previousMonth, previousYear)]);
 
-    const items = [...new Map([...currentMonthItems, ...previousMonthItems].map((item) => [item.id, item])).values()]
-        .toSorted((left, right) => new Date(right.published_at ?? 0).getTime() - new Date(left.published_at ?? 0).getTime())
+    const items = new Map([...currentMonthItems, ...previousMonthItems].map((item) => [item.id, item]))
+        .values()
+        .toArray()
+        .toSorted((left, right) => (parseDate(right.published_at ?? '')?.epochMilliseconds ?? 0) - (parseDate(left.published_at ?? '')?.epochMilliseconds ?? 0))
         .map((item) => mapItem(item));
 
     return {
