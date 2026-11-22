@@ -74,12 +74,7 @@ function parseArticle(feed: Feed, texts: string[], images: { [id: string]: FeedI
     return result;
 }
 
-function parsePost(feed: Feed, texts: string[], images: { [id: string]: FeedImage }): string {
-    for (const content of feed.contents.contents) {
-        if (content.text_content) {
-            texts.push(content.text_content.text);
-        }
-    }
+function parsePost(texts: string[], images: { [id: string]: FeedImage }): string {
     let result = '';
     for (const text of texts) {
         result += text;
@@ -110,8 +105,9 @@ export function parseFeed(feed: Feed): string {
     }
     if (feed.feed_type === 1) {
         // post: text and attachments
-        return parsePost(feed, texts, images);
-    } else if (feed.feed_type === 2) {
+        return parsePost(texts, images);
+    }
+    if (feed.feed_type === 2) {
         // article: pattern info
         return parseArticle(feed, texts, images);
     }

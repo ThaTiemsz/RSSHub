@@ -3,7 +3,9 @@ import { load } from 'cheerio';
 import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
+import { parseDate } from '@/utils/time';
+import { isOnSite } from '@/utils/valid-host';
 
 import { renderDescription } from './templates/description';
 
@@ -26,7 +28,7 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 48;
+    const limit = getRouteLimit(ctx, 48);
 
     const rootUrl = 'https://news.futunn.com';
     const currentUrl = `${rootUrl}/main`;
@@ -51,7 +53,8 @@ async function handler(ctx) {
     items = await Promise.all(
         items.map((item) =>
             cache.tryGet(item.link, async () => {
-                if (/news\.futunn\.com/.test(item.link)) {
+                // only follow links on the site itself
+                if (isOnSite(item.link, 'news.futunn.com')) {
                     const detailResponse = await got({
                         method: 'get',
                         url: item.link,

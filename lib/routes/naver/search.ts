@@ -3,6 +3,7 @@ import { decodeHTML } from 'entities';
 
 import type { DataItem, Route } from '@/types';
 import ofetch from '@/utils/ofetch';
+import { parseDate } from '@/utils/time';
 
 export const route: Route = {
     path: '/search/:category/:keyword',
@@ -41,7 +42,7 @@ export const route: Route = {
     handler,
 };
 
-const CATEGORY_CONFIG: Record<string, { url: (keyword: string) => string; templateIds: string[] }> = {
+const CATEGORY_CONFIG = {
     all: {
         url: (keyword) => `https://m.search.naver.com/search.naver?ssc=tab.m.all&where=m&sm=mtb_opt&query=${encodeURIComponent(keyword)}&nso=so%3Add&nso_open=1`,
         templateIds: ['webItem', 'ugcItem', 'newsItem', 'videoItem'],
@@ -62,9 +63,9 @@ const CATEGORY_CONFIG: Record<string, { url: (keyword: string) => string; templa
         url: (keyword) => `https://m.search.naver.com/search.naver?ssc=tab.m_video.all&where=m_video&sm=mtb_jum&query=${encodeURIComponent(keyword)}&nso=so%3Add`,
         templateIds: ['videoItem'],
     },
-};
+} satisfies Record<string, { url: (keyword: string) => string; templateIds: string[] }>;
 
-const CATEGORY_NAMES: Record<string, string> = {
+const CATEGORY_NAMES = {
     all: '통합검색',
     blog: '블로그',
     cafe: '카페',
@@ -90,28 +91,28 @@ async function handler(ctx) {
     };
 }
 
-function extractItems(response: string, templateId: string) {
+function extractItems(response: string, templateId: string): DataItem[] {
     const segments = response.split(`"templateId":"${templateId}"`);
     return segments
         .slice(0, -1)
         .map((segment) => (templateId === 'videoItem' ? extractVideoItem(segment) : extractGenericItem(segment, templateId)))
-        .filter(Boolean);
+        .filter((item) => item !== null);
 }
 
 function extractVideoItem(segment: string) {
-    const htmlMatch = segment.match(/"html":"((?:[^"\\]|\\.)*)"/);
+    const htmlMatch = /"html":"((?:[^"\\]|\\.)*)"/.exec(segment);
     const title = htmlMatch ? cleanText(htmlMatch[1]) : '';
-    const authorMatch = segment.match(/"authorHtml":"((?:[^"\\]|\\.)*)"/);
+    const authorMatch = /"authorHtml":"((?:[^"\\]|\\.)*)"/.exec(segment);
     const author = authorMatch ? cleanText(authorMatch[1]) : '';
-    const hrefMatches = [...segment.matchAll(/"href":"((?:[^"\\]|\\.)*)"/g)];
-    const links = hrefMatches.map((m) => m[1]);
+    const hrefMatches = segment.matchAll(/"href":"((?:[^"\\]|\\.)*)"/g).toArray();
+    const links = hrefMatches.map((m) => parseEmbeddedString(m[1]));
     const mediaDomains = /^(?:https?:\/\/)?(?:m\.youtube\.com|youtu\.be|www\.youtube\.com|www\.tiktok\.com|tv\.naver\.com|m\.blog\.naver\.com|m\.cafe\.naver\.com)\//;
     const link = links.find((l) => mediaDomains.test(l)) || links[0] || '';
-    const dateMatch = segment.match(/"createdAt":"((?:[^"\\]|\\.)*)"/);
-    const timeText = dateMatch?.[1] || '';
-    const viewMatch = segment.match(/"viewCount":"((?:[^"\\]|\\.)*)"/);
+    const dateMatch = /"createdAt":"((?:[^"\\]|\\.)*)"/.exec(segment);
+    const timeText = dateMatch ? parseEmbeddedString(dateMatch[1]) : '';
+    const viewMatch = /"viewCount":"((?:[^"\\]|\\.)*)"/.exec(segment);
     const viewCount = viewMatch ? cleanText(viewMatch[1]) : '';
-    const durationMatch = segment.match(/"playDuration":(\d+)/);
+    const durationMatch = /"playDuration":(\d+)/.exec(segment);
     const duration = durationMatch ? `${durationMatch[1]}초` : '';
 
     const hasVideoFields = segment.includes('"videoPlayerType"') || segment.includes('"playDuration"');
@@ -123,7 +124,7 @@ function extractVideoItem(segment: string) {
     return buildVideoResult(title, link, viewCount, duration, author, pubDate);
 }
 
-function buildVideoResult(title: string, link: string, viewCount: string, duration: string, author: string, pubDate: Date | undefined) {
+function buildVideoResult(title: string, link: string, viewCount: string, duration: string, author: string, pubDate: Temporal.Instant | undefined) {
     return {
         title,
         link,
@@ -146,35 +147,31 @@ function buildVideoDescription(viewCount: string, duration: string): string {
 
 function extractLink(segment: string, templateId: string): string {
     if (templateId === 'webItem') {
-        const hrefMatch = segment.match(/"href":"((?:[^"\\]|\\.)*)"/);
-        return hrefMatch?.[1] || '';
+        const hrefMatch = /"href":"((?:[^"\\]|\\.)*)"/.exec(segment);
+        return hrefMatch ? parseEmbeddedString(hrefMatch[1]) : '';
     }
-    const hrefMatches = [...segment.matchAll(/"titleHref":"((?:[^"\\]|\\.)*)"/g)];
+    const hrefMatches = segment.matchAll(/"titleHref":"((?:[^"\\]|\\.)*)"/g).toArray();
     if (hrefMatches.length > 0) {
-        return hrefMatches.at(-1)![1];
+        return parseEmbeddedString(hrefMatches.at(-1)![1]);
     }
-    const hrefMatch = segment.match(/"href":"((?:[^"\\]|\\.)*)"/);
-    return hrefMatch?.[1] || '';
+    const hrefMatch = /"href":"((?:[^"\\]|\\.)*)"/.exec(segment);
+    return hrefMatch ? parseEmbeddedString(hrefMatch[1]) : '';
 }
 
 function extractGenericItem(segment: string, templateId: string) {
-    const titleMatches = [...segment.matchAll(/"title":"((?:[^"\\]|\\.)*)"/g)];
+    const titleMatches = segment.matchAll(/"title":"((?:[^"\\]|\\.)*)"/g).toArray();
     const titles = titleMatches.map((m) => cleanText(m[1]));
     const title = titles.at(-1) || '';
     const sourceName = titles.at(-2) || '';
     const link = extractLink(segment, templateId);
 
     let bodyText = '';
-    const bodyMatch = segment.match(/"bodyText":"((?:[^"\\]|\\.)*)"/) || segment.match(/"content":"((?:[^"\\]|\\.)*)"/);
+    const bodyMatch = /"bodyText":"((?:[^"\\]|\\.)*)"/.exec(segment) || /"content":"((?:[^"\\]|\\.)*)"/.exec(segment);
     if (bodyMatch) {
         bodyText = cleanText(bodyMatch[1]);
     }
 
-    if (!title || !link) {
-        return null;
-    }
-
-    if (['더보기', '관련도순', '최신순'].includes(title)) {
+    if (!title || !link || ['더보기', '관련도순', '최신순'].includes(title)) {
         return null;
     }
 
@@ -183,20 +180,18 @@ function extractGenericItem(segment: string, templateId: string) {
 
 function buildItemFromTemplate(segment: string, templateId: string, title: string, link: string, bodyText: string, sourceName: string) {
     if (templateId === 'ugcItem') {
-        const dateMatch = segment.match(/"createdDate":"([^"]*)"/);
-        if (dateMatch?.[1]) {
-            return { title, link, description: bodyText, author: sourceName || undefined, pubDate: new Date(dateMatch[1]) };
-        }
-        return null;
+        const dateMatch = /"createdDate":"([^"]*)"/.exec(segment);
+        const pubDate = parseKoreanRelativeTime(dateMatch ? parseEmbeddedString(dateMatch[1]) : '');
+        return { title, link, description: bodyText, author: sourceName || undefined, ...(pubDate && { pubDate }) };
     }
 
-    let timeText = '';
+    let timeText: string;
     if (templateId === 'webItem') {
-        const timeMatch = segment.match(/\[\{"text":"([^"]*)"\}/);
-        timeText = timeMatch?.[1] || '';
+        const timeMatch = /\[\{"text":"([^"]*)"\}/.exec(segment);
+        timeText = timeMatch ? parseEmbeddedString(timeMatch[1]) : '';
     } else {
-        const textMatch = segment.match(/"text":"([^"]*)"/);
-        timeText = textMatch?.[1] || '';
+        const textMatch = /"text":"([^"]*)"/.exec(segment);
+        timeText = textMatch ? parseEmbeddedString(textMatch[1]) : '';
     }
 
     const pubDate = parseKoreanRelativeTime(timeText);
@@ -211,12 +206,11 @@ function extractCafeItems(html: string) {
         .map((el): DataItem | null => {
             const $el = $(el);
             const titleEl = $el.find('.title_link');
-            const title = titleEl.text().trim();
+            const title = titleEl.text();
             const link = titleEl.attr('href') || '';
-            const author = $el.find('.name').first().text().trim();
-            const timeText = $el.find('.sub').first().text().trim();
-            const descEl = $el.find('.dsc_link');
-            const description = descEl.length ? descEl.text().trim() : '';
+            const author = $el.find('.name').text().trim();
+            const timeText = $el.find('.sub').text().trim();
+            const description = $el.find('.dsc_link').text().trim();
 
             if (!title || !link) {
                 return null;
@@ -235,45 +229,53 @@ function extractCafeItems(html: string) {
         .filter((item): item is DataItem => item !== null);
 }
 
-function cleanText(text: string): string {
-    return decodeHTML(text).replaceAll('<mark>', '').replaceAll('</mark>', '');
+function parseEmbeddedString(text: string): string {
+    return JSON.parse(`"${text}"`);
 }
 
-function parseKoreanRelativeTime(timeText: string): Date | undefined {
-    const now = new Date();
+function cleanText(text: string): string {
+    return decodeHTML(parseEmbeddedString(text)).replaceAll('<mark>', '').replaceAll('</mark>', '');
+}
+
+function parseKoreanRelativeTime(timeText: string): Temporal.Instant | undefined {
     if (!timeText) {
         return;
     }
 
+    if (/^\d{4}[.-]\d{2}[.-]\d{2}\.?$/.test(timeText)) {
+        return parseDate(timeText, ['YYYY.MM.DD.', 'YYYY.MM.DD', 'YYYY-MM-DD'], 9);
+    }
+
     // Try absolute date formats first (e.g. "2025.12.01.", "2026-05-13T23:15:00+09:00")
-    const absDate = new Date(timeText);
-    if (!Number.isNaN(absDate.getTime())) {
+    const absDate = parseDate(timeText);
+    if (absDate) {
         return absDate;
     }
 
-    const match = timeText.match(/(\d+)\s*(시간|[분일주]) 전|(\d+)분 이내|(\d+)시간 이내|방금/);
+    if (timeText === '방금') {
+        return parseDate(Temporal.Now.instant().epochMilliseconds);
+    }
+
+    const match = /(\d+)\s*(시간|[분일주])\s*(?:전|이내)/.exec(timeText);
     if (!match) {
         return;
     }
 
-    if (match[0] === '방금') {
-        return;
-    }
-
-    const num = Number.parseInt(match[1] || match[3] || match[4] || '0', 10);
-    const unit = match[2] || '';
+    const now = Temporal.Now.instant().epochMilliseconds;
+    const num = Number(match[1]);
+    const unit = match[2];
 
     if (unit.includes('분')) {
-        return new Date(now.getTime() - num * 60 * 1000);
+        return parseDate(now - num * 60 * 1000);
     }
     if (unit.includes('시간')) {
-        return new Date(now.getTime() - num * 60 * 60 * 1000);
+        return parseDate(now - num * 60 * 60 * 1000);
     }
     if (unit.includes('일')) {
-        return new Date(now.getTime() - num * 24 * 60 * 60 * 1000);
+        return parseDate(now - num * 24 * 60 * 60 * 1000);
     }
     if (unit.includes('주')) {
-        return new Date(now.getTime() - num * 7 * 24 * 60 * 60 * 1000);
+        return parseDate(now - num * 7 * 24 * 60 * 60 * 1000);
     }
 
     return;
